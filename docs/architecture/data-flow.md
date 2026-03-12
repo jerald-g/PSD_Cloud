@@ -20,7 +20,6 @@ sequenceDiagram
     participant CE as Compliance Engine
     participant RG as Report Generator
     participant MINIO as MinIO Storage
-    participant NS as Notification Service
     participant DASH as Dashboard
 
     User->>GW: POST /api/auth/token (credentials)
@@ -57,9 +56,6 @@ sequenceDiagram
     RG->>RG: Render HTML via Jinja2
     RG->>MINIO: PUT report.html + report.json
     RG->>ORCH: POST /scans/{id}/result (report_url)
-    RG->>NS: POST /notify {event=scan.completed}
-
-    NS->>NS: Dispatch to registered webhooks
 
     User->>DASH: View scan history
     DASH->>GW: GET /api/scans

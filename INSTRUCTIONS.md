@@ -15,7 +15,7 @@ Before running, make sure you have installed:
 
 ```
 PSD_Cloud/
-  services/                    # 9 microservices
+  services/                    # 8 microservices
     api-gateway/               # JWT auth, request routing (FastAPI)
     auth-service/              # User registration & login (FastAPI + PostgreSQL)
     scan-orchestrator/         # Scan lifecycle management (FastAPI + NATS + Redis)
@@ -23,14 +23,10 @@ PSD_Cloud/
     dast-scanner/              # Dynamic analysis worker (OWASP ZAP integration)
     compliance-engine/         # OWASP/CIS compliance mapping (FastAPI)
     report-generator/          # HTML/JSON report generation (FastAPI + MinIO)
-    notification-service/      # Webhook notifications (FastAPI)
     dashboard/                 # Web UI (React + Vite)
   test-targets/                # Intentionally vulnerable .NET apps for testing
   kubernetes/                  # Raw K8s manifests
-  infra/
-    helm/                      # Helm chart for production deployment
-    terraform/                 # Multi-cloud infrastructure provisioning
-    observability/             # Prometheus + Grafana configs
+  observability/               # Prometheus + Grafana configs
   docker-compose.dev.yml       # Local development stack
 ```
 
@@ -43,7 +39,7 @@ cd PSD_Cloud
 
 ## Step 2: Start the Platform (Docker Compose)
 
-This is the primary way to run everything locally. One command starts all 9 microservices plus backing infrastructure (PostgreSQL, Redis, NATS, MinIO, SonarQube, ZAP, Prometheus, Grafana).
+This is the primary way to run everything locally. One command starts all 8 microservices plus backing infrastructure (PostgreSQL, Redis, NATS, MinIO, SonarQube, ZAP, Prometheus, Grafana).
 
 ```bash
 docker-compose -f docker-compose.dev.yml up --build
@@ -221,8 +217,7 @@ SonarQube needs a one-time setup after first boot:
 5. Scanner publishes results back to NATS
 6. Compliance Engine maps findings to OWASP Top 10 / CIS Controls
 7. Report Generator creates HTML + JSON report, stores in MinIO
-8. Notification Service sends webhook notification
-9. Dashboard polls for updates and displays results
+8. Dashboard polls for updates and displays results
 ```
 
 ## Troubleshooting
@@ -240,9 +235,7 @@ SonarQube needs a one-time setup after first boot:
 
 ## Kubernetes Deployment
 
-There are two ways to deploy on Kubernetes: raw manifests (simplest) or Helm (production-ready).
-
-### Option A: Raw Manifests (Docker Desktop / Minikube)
+### Raw Manifests (Docker Desktop / Minikube)
 
 **Prerequisites:**
 - Docker Desktop with **Kubernetes enabled** (Settings > Kubernetes > Enable Kubernetes), or Minikube installed
@@ -254,9 +247,9 @@ There are two ways to deploy on Kubernetes: raw manifests (simplest) or Helm (pr
 # If using Docker Desktop Kubernetes, images are shared automatically.
 # If using Minikube, first run: eval $(minikube docker-env)
 
-# Build all 9 service images
+# Build all 8 service images
 for svc in auth-service scan-orchestrator sast-scanner dast-scanner \
-           compliance-engine report-generator notification-service \
+           compliance-engine report-generator \
            api-gateway dashboard; do
   docker build -t psd-cloud/$svc:latest services/$svc/
 done
@@ -284,7 +277,7 @@ kubectl wait --namespace psd-cloud --for=condition=ready pod -l app=postgres --t
 kubectl wait --namespace psd-cloud --for=condition=ready pod -l app=redis --timeout=60s
 kubectl wait --namespace psd-cloud --for=condition=ready pod -l app=nats --timeout=60s
 
-# Deploy the 9 microservices
+# Deploy the 8 microservices
 kubectl apply -f kubernetes/microservices.yaml
 
 # (Optional) Deploy ingress for domain-based routing
@@ -318,76 +311,6 @@ If using Minikube, replace `localhost` with the output of `minikube ip`.
 kubectl delete namespace psd-cloud
 ```
 
-### Option B: Helm Chart (Production / Cloud Clusters)
-
-**Prerequisites:**
-- `helm` v3.12+ installed
-- A Kubernetes cluster (EKS, AKS, GKE, or local)
-- A container registry to push images to
-
-**Step 1: Build and push images to your registry**
-
-```bash
-export REGISTRY=your-registry.example.com/psd-cloud
-export TAG=$(git rev-parse --short HEAD)
-
-for svc in auth-service scan-orchestrator sast-scanner dast-scanner \
-           compliance-engine report-generator notification-service \
-           api-gateway dashboard; do
-  docker build -t $REGISTRY/$svc:$TAG services/$svc/
-  docker push $REGISTRY/$svc:$TAG
-done
-```
-
-**Step 2: Install Helm dependencies**
-
-```bash
-cd infra/helm
-helm dependency update
-```
-
-This pulls the PostgreSQL, Redis, NATS, MinIO, and Prometheus sub-charts.
-
-**Step 3: Deploy**
-
-```bash
-helm upgrade --install psd-cloud . \
-  --namespace psd-cloud \
-  --create-namespace \
-  --set global.imageRegistry=$REGISTRY \
-  --set global.imageTag=$TAG \
-  --set global.jwtSecret=$(openssl rand -base64 32) \
-  --set postgresql.auth.password=$(openssl rand -base64 16) \
-  --set minio.auth.rootPassword=$(openssl rand -base64 16)
-```
-
-**Step 4: Verify**
-
-```bash
-kubectl get pods -n psd-cloud
-kubectl get svc -n psd-cloud
-```
-
-**Step 5: Access via port-forward**
-
-```bash
-# Dashboard
-kubectl port-forward svc/psd-cloud-dashboard 3000:80 -n psd-cloud
-
-# API Gateway
-kubectl port-forward svc/psd-cloud-api-gateway 8080:8000 -n psd-cloud
-
-# Grafana (monitoring)
-kubectl port-forward svc/psd-cloud-grafana 3001:80 -n psd-cloud
-```
-
-**Step 6: Tear down**
-
-```bash
-helm uninstall psd-cloud -n psd-cloud
-kubectl delete namespace psd-cloud
-```
-
 ### Kubernetes Troubleshooting
 
 | Problem | Solution |
@@ -396,5 +319,4 @@ kubectl delete namespace psd-cloud
 | Pods in `CrashLoopBackOff` | Check logs: `kubectl logs <pod-name> -n psd-cloud` |
 | Pods in `ImagePullBackOff` | Images not built locally. Rebuild with `docker build` or check registry |
 | Database connection refused | PostgreSQL pod not ready yet. Wait or check: `kubectl get pods -l app=postgres -n psd-cloud` |
-| Helm dependency errors | Run `helm dependency update infra/helm/` |
 | `NodePort` not accessible | On Docker Desktop, use `localhost`. On Minikube, use `minikube ip` |

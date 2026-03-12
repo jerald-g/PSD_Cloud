@@ -143,17 +143,28 @@ services:
       -config api.addrs.addr.name=.*
       -config api.addrs.addr.regex=true
       -config api.disablekey=true
+      -config scanner.threadPerHost=2
+    environment:
+      - JAVA_OPTS=-Xmx512m
+    mem_limit: 1g
     networks:
       - psd-net
     ports:
       - "8090:8090"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8090/JSON/core/view/version/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
 
   # ─── Observability ──────────────────────────────────────────────────────────
 
   prometheus:
     image: prom/prometheus:v2.51.0
     volumes:
-      - ./infra/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus-data:/prometheus
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
@@ -170,7 +181,7 @@ services:
       GF_USERS_ALLOW_SIGN_UP: "false"
     volumes:
       - grafana-data:/var/lib/grafana
-      - ./infra/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
     networks:
       - psd-net
     ports:
@@ -253,9 +264,12 @@ services:
     networks:
       - psd-net
     depends_on:
-      - nats
-      - postgres
-      - zap
+      nats:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      zap:
+        condition: service_healthy
     restart: unless-stopped
 
   compliance-engine:
@@ -289,19 +303,6 @@ services:
       - nats
       - minio
       - postgres
-    restart: unless-stopped
-
-  notification-service:
-    build:
-      context: ./services/notification-service
-      dockerfile: Dockerfile
-    environment:
-      NATS_URL: nats://nats:4222
-      DATABASE_URL: postgresql+asyncpg://psd:psd_secret@postgres:5432/psd_cloud
-    networks:
-      - psd-net
-    depends_on:
-      - nats
     restart: unless-stopped
 
   api-gateway:

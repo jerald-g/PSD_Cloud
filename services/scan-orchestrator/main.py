@@ -49,6 +49,7 @@ class CreateScanRequest(BaseModel):
     scan_type: ScanType = ScanType.FULL
     repository_url: str | None = None   # Required for SAST
     target_url: str | None = None       # Required for DAST
+    scan_strength: str | None = "HIGH"   # Always use HIGH strength for thorough DAST scans
     # user_id is injected by the gateway from JWT payload via X-User-ID header
 
 
@@ -135,6 +136,7 @@ async def create_scan(
         "project_name": scan.project_name,
         "repository_url": scan.repository_url,
         "target_url": scan.target_url,
+        "scan_strength": payload.scan_strength or "LOW",
     }
 
     if payload.scan_type in (ScanType.SAST, ScanType.FULL):
@@ -174,7 +176,9 @@ async def update_scan_result(scan_id: str, payload: ScanResultCallback, db: Anno
     if not scan:
         raise HTTPException(status_code=404, detail="Scan not found")
 
-    scan.status = payload.status.value
+    # Don't let a late "failed" callback overwrite an already-completed scan
+    if not (scan.status == ScanStatus.COMPLETED.value and payload.status == ScanStatus.FAILED):
+        scan.status = payload.status.value
     if payload.findings_summary:
         scan.findings_summary = payload.findings_summary
     if payload.compliance_score is not None:
@@ -184,7 +188,8 @@ async def update_scan_result(scan_id: str, payload: ScanResultCallback, db: Anno
     if payload.error_message:
         scan.error_message = payload.error_message
     if payload.status in (ScanStatus.COMPLETED, ScanStatus.FAILED):
-        scan.completed_at = datetime.utcnow()
+        if not scan.completed_at:
+            scan.completed_at = datetime.utcnow()
 
     await db.commit()
     return {"status": "updated"}

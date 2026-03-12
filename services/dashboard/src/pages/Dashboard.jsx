@@ -99,7 +99,7 @@ export default function Dashboard() {
                     {s.compliance_score != null ? `${s.compliance_score}/100` : '—'}
                   </td>
                   <td style={{ padding: '0.5rem', borderBottom: '1px solid #e2e8f0' }}>
-                    {s.report_url && (
+                    {(s.report_url || s.findings_summary) && (
                       <Link to={`/scans/${s.id}/report`} style={{ color: '#2b6cb0', fontSize: '0.82rem' }}>View Report</Link>
                     )}
                   </td>

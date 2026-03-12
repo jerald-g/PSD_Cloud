@@ -32,13 +32,13 @@ echo ""
 
 # ─── Step 2: Build Docker images locally ──────────────────────────────────────
 echo "[2/6] Building Docker images (this takes a few minutes the first time)..."
-SERVICES="auth-service api-gateway scan-orchestrator sast-scanner dast-scanner compliance-engine report-generator notification-service dashboard"
+SERVICES="auth-service api-gateway scan-orchestrator sast-scanner dast-scanner compliance-engine report-generator dashboard"
 
 for svc in $SERVICES; do
     echo "  Building psd-cloud/$svc ..."
     docker build -t "psd-cloud/$svc:latest" "$ROOT_DIR/services/$svc" -q
 done
-echo "  ✓ All 9 images built"
+echo "  ✓ All 8 images built"
 echo ""
 
 # ─── Step 3: Create namespace ─────────────────────────────────────────────────

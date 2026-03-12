@@ -13,7 +13,7 @@ The system is designed as a **microservices architecture** deployed on **Kuberne
 - **Separation of concerns** – each service owns one capability
 - **Event-driven processing** – scanners communicate via NATS JetStream (publish-subscribe)
 - **Stateless services** – horizontal scaling is native; state lives in PostgreSQL / MinIO
-- **Infrastructure as Code** – Terraform + Helm for repeatable deployments across AWS / Azure / GCP
+- **Declarative deployment** – Kubernetes manifests for repeatable deployments
 
 ---
 
@@ -31,7 +31,6 @@ graph TB
         DAST["DAST Scanner\n(ZAP Worker)"]
         CE["Compliance Engine\n(OWASP/CIS Mapper)"]
         RG["Report Generator\n(Jinja2)"]
-        NS["Notification Service\n(Webhook Dispatcher)"]
         DASH["Dashboard\n(React SPA)"]
     end
 
@@ -60,7 +59,6 @@ graph TB
     CE --> RG
     CE --> ORCH
     RG --> MINIO
-    RG --> NS
     DASH --> GW
     PROM -.-> GW
     PROM -.-> ORCH
@@ -82,7 +80,6 @@ graph TB
 | dast-scanner | Python (ZAP API) | NATS consumer, dynamic analysis runner, result publisher |
 | compliance-engine | Python/FastAPI | OWASP Top 10 + CIS mapping, compliance score computation |
 | report-generator | Python/FastAPI | Jinja2 HTML + JSON reports, MinIO storage |
-| notification-service | Python/FastAPI | Webhook dispatch on scan completion |
 | dashboard | React (Vite) | Web UI – scan management, compliance scores, reports |
 
 ---
@@ -92,7 +89,6 @@ graph TB
 | Layer | Technology |
 |---|---|
 | Orchestration | Kubernetes (EKS / AKS / GKE / k3s) |
-| IaC | Terraform + Helm |
 | API framework | FastAPI (Python 3.12) |
 | Frontend | React 18 + Vite |
 | Message broker | NATS JetStream |
@@ -112,5 +108,4 @@ graph TB
 | Environment | How to run |
 |---|---|
 | Local dev | `docker-compose -f docker-compose.dev.yml up --build` |
-| Kubernetes (any cloud) | `helm upgrade --install psd-cloud infra/helm/ -f values-<env>.yaml` |
-| Cloud provisioning | `terraform -chdir=infra/terraform apply -var cloud_provider=aws` |
+| Kubernetes | `kubectl apply -f kubernetes/` |

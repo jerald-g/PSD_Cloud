@@ -4,4 +4,4 @@ metadata:
   name: psd-cloud
   labels:
     app.kubernetes.io/name: psd-cloud
-    app.kubernetes.io/managed-by: helm
+    app.kubernetes.io/managed-by: kubectl

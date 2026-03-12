@@ -85,7 +85,7 @@ export default function ScanHistory() {
                     {s.started_at ? new Date(s.started_at).toLocaleString() : '—'}
                   </td>
                   <td style={{ padding: '0.75rem 1rem', borderBottom: '1px solid #e2e8f0' }}>
-                    {s.status === 'completed' && (
+                    {(s.status === 'completed' || s.findings_summary) && (
                       <Link to={`/scans/${s.id}/report`} style={{ color: '#2b6cb0', fontSize: '0.82rem', fontWeight: 600 }}>
                         View Report
                       </Link>

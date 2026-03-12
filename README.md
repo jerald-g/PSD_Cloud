@@ -8,7 +8,7 @@ PSD Cloud automates SAST (Static Application Security Testing) and DAST (Dynamic
 
 ## Architecture
 
-9 microservices orchestrated on Kubernetes:
+8 microservices orchestrated on Kubernetes:
 
 | Service | Role |
 |---|---|
@@ -19,7 +19,6 @@ PSD Cloud automates SAST (Static Application Security Testing) and DAST (Dynamic
 | dast-scanner | OWASP ZAP dynamic analysis worker |
 | compliance-engine | OWASP/CIS mapping, compliance score computation |
 | report-generator | Jinja2 HTML + JSON reports, MinIO storage |
-| notification-service | Webhook dispatch on scan completion |
 | dashboard | React SPA – scan management and report viewer |
 
 ## Quick Start (Local Development)
@@ -36,19 +35,24 @@ docker-compose -f docker-compose.dev.yml up --build
 # Grafana:        http://localhost:3001  (admin / admin)
 ```
 
+### Test Targets for Scanning
+
+Three intentionally vulnerable .NET APIs are included for DAST testing:
+
+| Target | URL | Description |
+|---|---|---|
+| VulnerableAPI | http://localhost:5000 | Full .NET Web API with common vulnerabilities |
+| VulnerableMVC | http://localhost:5001 | .NET MVC app with security flaws |
+| VulnerableMinimalAPI | http://localhost:5002 | .NET Minimal API with injection weaknesses |
+
+Use these as DAST scan targets from the dashboard (e.g. `http://host.docker.internal:5000` when scanning from within Docker).
+
 ## Kubernetes Deployment
 
 See the full [Kubernetes Deployment Guide](docs/deployment-guide.md) for detailed instructions.
 
 ```bash
-# Quick start with Helm
-helm dependency update infra/helm/
-helm upgrade --install psd-cloud infra/helm/ \
-  --namespace psd-cloud --create-namespace \
-  --set global.imageRegistry=your-registry.example.com/psd-cloud \
-  --set global.jwtSecret=$(openssl rand -base64 32)
-
-# Or deploy raw manifests to a local cluster (Minikube / k3s)
+# Deploy raw manifests to a local cluster (Docker Desktop / Minikube / k3s)
 kubectl apply -f kubernetes/namespace.yaml
 kubectl apply -f kubernetes/backing-services.yaml
 kubectl apply -f kubernetes/microservices.yaml
@@ -63,4 +67,4 @@ kubectl apply -f kubernetes/ingress.yaml
 
 ## Technology Stack
 
-Kubernetes · Terraform · Helm · FastAPI · React · NATS JetStream · PostgreSQL · Redis · MinIO · Semgrep · OWASP ZAP · Prometheus · Grafana
+Kubernetes · FastAPI · React · NATS JetStream · PostgreSQL · Redis · MinIO · Semgrep · OWASP ZAP · Prometheus · Grafana

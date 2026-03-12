@@ -22,6 +22,7 @@ from minio import Minio
 from minio.error import S3Error
 from pydantic import BaseModel
 from prometheus_fastapi_instrumentator import Instrumentator
+from weasyprint import HTML
 
 log = logging.getLogger("report-generator")
 
@@ -33,7 +34,6 @@ MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "minioadmin123")
 MINIO_BUCKET = os.getenv("MINIO_BUCKET", "psd-reports")
 MINIO_SECURE = os.getenv("MINIO_SECURE", "false").lower() == "true"
 
-NOTIFICATION_URL = os.getenv("NOTIFICATION_URL", "http://notification-service:8000")
 ORCHESTRATOR_URL = os.getenv("ORCHESTRATOR_URL", "http://scan-orchestrator:8000")
 
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
@@ -115,6 +115,8 @@ def _render_html(data: GenerateRequest) -> str:
         severity_counts=severity_counts,
         owasp_counts=owasp_counts,
         owasp_names=_OWASP_NAMES,
+        total_risk_score=data.findings_summary.get("total_risk_score", 0),
+        risk_by_owasp=data.findings_summary.get("risk_by_owasp", {}),
         findings=data.enriched_findings,
         generated_at=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
     )
@@ -160,6 +162,14 @@ async def generate_report(payload: GenerateRequest):
     html_url = _upload_to_minio(payload.scan_id, html_bytes, "text/html", "html")
     json_url = _upload_to_minio(payload.scan_id, json_bytes, "application/json", "json")
 
+    # Generate PDF from the rendered HTML (non-fatal if it fails)
+    pdf_url = None
+    try:
+        pdf_bytes = HTML(string=html).write_pdf()
+        pdf_url = _upload_to_minio(payload.scan_id, pdf_bytes, "application/pdf", "pdf")
+    except Exception as exc:
+        log.warning("PDF generation failed (HTML/JSON reports still available): %s", exc)
+
     # Update orchestrator with report URL
     async with httpx.AsyncClient(timeout=10.0) as client:
         await client.post(
@@ -170,18 +180,8 @@ async def generate_report(payload: GenerateRequest):
                 "report_url": html_url,
             },
         )
-        # Notify
-        await client.post(
-            f"{NOTIFICATION_URL}/notify",
-            json={
-                "scan_id": payload.scan_id,
-                "event": "scan.completed",
-                "compliance_score": payload.compliance_score,
-                "report_url": html_url,
-            },
-        )
 
-    return {"html_url": html_url, "json_url": json_url}
+    return {"html_url": html_url, "json_url": json_url, "pdf_url": pdf_url}
 
 
 @app.get("/reports/{scan_id}/html")
@@ -204,5 +204,21 @@ async def download_json(scan_id: str):
         resp = minio_client.get_object(MINIO_BUCKET, object_name)
         content = resp.read()
         return Response(content=content, media_type="application/json")
+    except S3Error:
+        raise HTTPException(status_code=404, detail="Report not found")
+
+
+@app.get("/reports/{scan_id}/pdf")
+async def download_pdf(scan_id: str):
+    """Download the PDF report from MinIO."""
+    object_name = f"{scan_id}/report.pdf"
+    try:
+        resp = minio_client.get_object(MINIO_BUCKET, object_name)
+        content = resp.read()
+        return Response(
+            content=content,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="report-{scan_id[:8]}.pdf"'},
+        )
     except S3Error:
         raise HTTPException(status_code=404, detail="Report not found")

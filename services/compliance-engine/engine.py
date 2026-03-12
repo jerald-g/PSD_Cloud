@@ -23,7 +23,7 @@ log = logging.getLogger("compliance-engine")
 
 ORCHESTRATOR_URL = os.getenv("ORCHESTRATOR_URL", "http://scan-orchestrator:8000")
 REPORT_GENERATOR_URL = os.getenv("REPORT_GENERATOR_URL", "http://report-generator:8000")
-NOTIFICATION_URL = os.getenv("NOTIFICATION_URL", "http://notification-service:8000")
+
 
 # ─── Load mapping tables ───────────────────────────────────────────────────────
 
@@ -103,20 +103,61 @@ def _match_cis(finding: dict) -> str:
 
 _SEVERITY_WEIGHT = {"CRITICAL": 10, "HIGH": 7, "MEDIUM": 4, "LOW": 1, "INFORMATIONAL": 0, "INFO": 0}
 
+# ─── Risk-based exploitability factors ────────────────────────────────────────
+# Each OWASP category gets an exploitability rating (0.0–1.0) based on how
+# easily and commonly it is exploited in the wild (derived from OWASP risk
+# rating methodology and real-world attack frequency data).
+_OWASP_EXPLOITABILITY: dict[str, float] = {
+    "A01:2021": 0.85,   # Broken Access Control – high; simple auth bypass
+    "A02:2021": 0.55,   # Cryptographic Failures – moderate; requires interception
+    "A03:2021": 0.95,   # Injection – very high; automated tooling available
+    "A04:2021": 0.40,   # Insecure Design – low-moderate; logic-dependent
+    "A05:2021": 0.60,   # Security Misconfiguration – moderate; easily found by scanners
+    "A06:2021": 0.70,   # Vulnerable Components – high; public exploits often exist
+    "A07:2021": 0.80,   # Auth Failures – high; credential stuffing is trivial
+    "A08:2021": 0.75,   # Integrity Failures – high; deserialization is weaponised
+    "A09:2021": 0.20,   # Logging Failures – low; not directly exploitable
+    "A10:2021": 0.90,   # SSRF – very high; cloud metadata attacks
+}
+
+_CONFIDENCE_FACTOR: dict[str, float] = {
+    "HIGH": 1.0,
+    "MEDIUM": 0.7,
+    "LOW": 0.4,
+    "CONFIRMED": 1.0,
+    "FALSE POSITIVE": 0.0,
+}
+
+# DAST findings are confirmed reachable; SAST findings are potential
+_SCAN_TYPE_FACTOR: dict[str, float] = {"dast": 1.5, "sast": 1.0}
+
+
+def _compute_risk_score(finding: dict, scan_type: str) -> float:
+    """Compute a per-finding risk score factoring in exploitability, confidence,
+    and whether the finding was verified (DAST) or static (SAST)."""
+    severity_w = _SEVERITY_WEIGHT.get(finding.get("severity", "LOW").upper(), 1)
+    owasp_cat = finding.get("owasp_category", "A05:2021")
+    exploit_f = _OWASP_EXPLOITABILITY.get(owasp_cat, 0.5)
+    confidence = finding.get("confidence", "MEDIUM").upper()
+    confidence_f = _CONFIDENCE_FACTOR.get(confidence, 0.7)
+    scan_f = _SCAN_TYPE_FACTOR.get(scan_type.lower(), 1.0)
+    instance_count = finding.get("instance_count", 1)
+    instance_f = min(1.0 + 0.1 * (instance_count - 1), 1.5)  # cap at 1.5x
+    return round(severity_w * exploit_f * confidence_f * scan_f * instance_f, 2)
+
 
 def _compute_score(findings: list[dict]) -> float:
     """
-    Compliance score 0-100. Uses a weighted penalty that scales with finding count.
-    CRITICAL/HIGH findings are weighted more heavily, but the score degrades
-    gradually rather than instantly dropping to 0 for large codebases.
+    Risk-based compliance score 0-100.  Each finding contributes a penalty
+    proportional to its risk score (severity × exploitability × confidence ×
+    scan-type).  Logarithmic scaling prevents large codebases from instantly
+    dropping to 0.
     """
     import math
     if not findings:
         return 100.0
-    total_weight = sum(_SEVERITY_WEIGHT.get(f.get("severity", "LOW").upper(), 1) for f in findings)
-    # Logarithmic scaling: gentle curve that produces meaningful scores.
-    # ~50 weighted pts → ~82; ~200 → ~60; ~600 → ~40; ~2000 → ~22
-    penalty = 15 * math.log1p(total_weight / 5)
+    total_risk = sum(f.get("risk_score", _SEVERITY_WEIGHT.get(f.get("severity", "LOW").upper(), 1)) for f in findings)
+    penalty = 15 * math.log1p(total_risk / 5)
     score = max(0.0, 100.0 - penalty)
     return round(score, 2)
 
@@ -125,14 +166,25 @@ def _build_summary(enriched: list[dict]) -> dict:
     total = len(enriched)
     by_severity: dict[str, int] = {}
     by_owasp: dict[str, int] = {}
+    total_risk = 0.0
+    risk_by_owasp: dict[str, float] = {}
 
     for f in enriched:
         sev = f.get("severity", "UNKNOWN").upper()
         by_severity[sev] = by_severity.get(sev, 0) + 1
         owasp = f.get("owasp_category", "UNKNOWN")
         by_owasp[owasp] = by_owasp.get(owasp, 0) + 1
+        rs = f.get("risk_score", 0)
+        total_risk += rs
+        risk_by_owasp[owasp] = round(risk_by_owasp.get(owasp, 0) + rs, 2)
 
-    return {"total": total, "by_severity": by_severity, "by_owasp": by_owasp}
+    return {
+        "total": total,
+        "by_severity": by_severity,
+        "by_owasp": by_owasp,
+        "total_risk_score": round(total_risk, 2),
+        "risk_by_owasp": risk_by_owasp,
+    }
 
 
 # ─── Routes ───────────────────────────────────────────────────────────────────
@@ -147,12 +199,18 @@ async def evaluate(payload: EvaluateRequest):
     """Receive raw findings from a scanner, enrich them, compute scores, and forward results."""
     enriched = []
     for finding in payload.findings:
-        enriched.append({
+        owasp_cat = _match_owasp(finding)
+        enriched_finding = {
             **finding,
-            "owasp_category": _match_owasp(finding),
-            "owasp_name": OWASP_TOP10.get(_match_owasp(finding), {}).get("name", "Unknown"),
+            "owasp_category": owasp_cat,
+            "owasp_name": OWASP_TOP10.get(owasp_cat, {}).get("name", "Unknown"),
             "cis_category": _match_cis(finding),
-        })
+        }
+        enriched_finding["risk_score"] = _compute_risk_score(enriched_finding, payload.scan_type)
+        enriched.append(enriched_finding)
+
+    # Sort by risk score descending so highest-risk findings appear first
+    enriched.sort(key=lambda f: f.get("risk_score", 0), reverse=True)
 
     score = _compute_score(enriched)
     summary = _build_summary(enriched)

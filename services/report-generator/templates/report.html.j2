@@ -91,9 +91,13 @@
       <div class="value score-good">{{ severity_counts.get('LOW', 0) + severity_counts.get('INFO', 0) }}</div>
       <div class="label">Low / Info</div>
     </div>
+    <div class="score-box">
+      <div class="value" style="color:#553c9a">{{ total_risk_score }}</div>
+      <div class="label">Total Risk Score</div>
+    </div>
   </div>
 
-  <!-- OWASP Top 10 breakdown -->
+  <!-- OWASP Top 10 breakdown with risk scores -->
   {% if owasp_counts %}
   <section>
     <h2>OWASP Top 10 2021 Breakdown</h2>
@@ -103,6 +107,9 @@
         <div class="count">{{ count }}</div>
         <div class="cat-id">{{ cat_id }}</div>
         <div class="cat-name">{{ owasp_names.get(cat_id, '') }}</div>
+        {% if risk_by_owasp and risk_by_owasp.get(cat_id) %}
+        <div style="font-size:0.72rem;color:#553c9a;margin-top:0.3rem;font-weight:600">Risk: {{ risk_by_owasp.get(cat_id) }}</div>
+        {% endif %}
       </div>
       {% endfor %}
     </div>
@@ -118,16 +125,18 @@
       <thead>
         <tr>
           <th style="width:8%">Severity</th>
-          <th style="width:14%">OWASP Category</th>
-          <th style="width:16%">Rule</th>
-          <th style="width:22%">Location</th>
-          <th style="width:40%">Description</th>
+          <th style="width:7%">Risk</th>
+          <th style="width:13%">OWASP Category</th>
+          <th style="width:14%">Rule</th>
+          <th style="width:20%">Location</th>
+          <th style="width:38%">Description</th>
         </tr>
       </thead>
       <tbody>
         {% for f in findings %}
         <tr>
           <td><span class="badge badge-{{ f.severity|upper }}">{{ f.severity|upper }}</span></td>
+          <td style="font-weight:600;color:{% if f.risk_score >= 8 %}#c53030{% elif f.risk_score >= 4 %}#c05621{% elif f.risk_score >= 2 %}#975a16{% else %}#718096{% endif %}">{{ f.risk_score }}</td>
           <td>
             <span class="owasp-tag">{{ f.owasp_category }}</span>
             {% if f.owasp_name and f.owasp_name != 'Unknown' %}

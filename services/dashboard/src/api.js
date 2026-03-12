@@ -53,3 +53,4 @@ export const createScan = (payload) => client.post('/api/scans', payload)
 // Reports
 export const getReportHtmlUrl = (scanId) => `${BASE}/api/reports/${scanId}/html`
 export const getReportJsonUrl = (scanId) => `${BASE}/api/reports/${scanId}/json`
+export const getReportPdfUrl = (scanId) => `${BASE}/api/reports/${scanId}/pdf`

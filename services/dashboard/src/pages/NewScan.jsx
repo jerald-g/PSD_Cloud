@@ -3,9 +3,11 @@ import { useNavigate } from 'react-router-dom'
 import { createScan } from '../api.js'
 
 const EXAMPLE_TARGETS = [
+  { name: 'Vulnerable API (.NET)', repo: '', url: 'http://host.docker.internal:5000' },
+  { name: 'Vulnerable MVC (.NET)', repo: '', url: 'http://host.docker.internal:5001' },
+  { name: 'Vulnerable Minimal API (.NET)', repo: '', url: 'http://host.docker.internal:5002' },
   { name: 'NodeGoat (OWASP, small)', repo: 'https://github.com/OWASP/NodeGoat.git', url: '' },
   { name: 'Juice Shop (OWASP, large)', repo: 'https://github.com/juice-shop/juice-shop.git', url: '' },
-  { name: 'VulnerableAPI (.NET)', repo: '', url: 'http://host.docker.internal:5001' },
 ]
 
 export default function NewScan() {
@@ -14,6 +16,7 @@ export default function NewScan() {
     scan_type: 'sast',
     repository_url: '',
     target_url: '',
+    scan_strength: 'HIGH',
   })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -37,7 +40,7 @@ export default function NewScan() {
     setError('')
     try {
       const payload = { ...form }
-      if (form.scan_type === 'sast') delete payload.target_url
+      if (form.scan_type === 'sast') { delete payload.target_url; delete payload.scan_strength }
       if (form.scan_type === 'dast') delete payload.repository_url
       await createScan(payload)
       navigate('/scans')
@@ -94,6 +97,7 @@ export default function NewScan() {
                 <p style={{ fontSize: '0.8rem', color: '#718096', marginTop: '-0.75rem', marginBottom: '1.25rem' }}>
                   The DAST scanner will spider and actively scan this URL using OWASP ZAP.
                 </p>
+
               </>
             )}
 

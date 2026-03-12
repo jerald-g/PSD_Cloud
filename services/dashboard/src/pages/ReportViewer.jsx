@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { getScan, getReportHtmlUrl, getReportJsonUrl } from '../api.js'
+import { getScan, getReportHtmlUrl, getReportJsonUrl, getReportPdfUrl } from '../api.js'
 
 export default function ReportViewer() {
   const { id } = useParams()
@@ -16,6 +16,7 @@ export default function ReportViewer() {
 
   const htmlUrl = getReportHtmlUrl(id)
   const jsonUrl = getReportJsonUrl(id)
+  const pdfUrl = getReportPdfUrl(id)
 
   return (
     <div>
@@ -29,6 +30,10 @@ export default function ReportViewer() {
             background: '#2b6cb0', color: 'white', padding: '0.6rem 1.2rem',
             borderRadius: 8, textDecoration: 'none', fontWeight: 600, fontSize: '0.9rem',
           }}>Download HTML</a>
+          <a href={pdfUrl} target="_blank" rel="noreferrer" style={{
+            background: '#e53e3e', color: 'white', padding: '0.6rem 1.2rem',
+            borderRadius: 8, textDecoration: 'none', fontWeight: 600, fontSize: '0.9rem',
+          }}>Download PDF</a>
           <a href={jsonUrl} target="_blank" rel="noreferrer" style={{
             background: '#e2e8f0', color: '#2d3748', padding: '0.6rem 1.2rem',
             borderRadius: 8, textDecoration: 'none', fontWeight: 600, fontSize: '0.9rem',

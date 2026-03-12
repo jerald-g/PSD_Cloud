@@ -21,7 +21,6 @@ This project delivers a complete **cloud-native architectural redesign** that:
 - Introduces event-driven scan orchestration via NATS JetStream
 - Adds multi-tenant user management with JWT authentication
 - Provides a live React dashboard instead of static HTML outputs
-- Supports any cloud provider (AWS / Azure / GCP) via Terraform + Helm
 - Adds production-grade observability (Prometheus + Grafana)
 
 > **Compliance note:** No code, reports, diagrams, or text from the original projects has been reused. This is an independent architectural evolution.
@@ -41,13 +40,12 @@ The platform uses a **microservices architecture** with **event-driven communica
 | SAST engine | Semgrep | Open-source, multi-language, OWASP Top 10 ruleset |
 | DAST engine | OWASP ZAP | Industry standard, REST API control |
 | Object storage | MinIO | S3-compatible; works locally and on any cloud |
-| IaC | Terraform + Helm | Declarative, version-controlled, multi-cloud |
 | Auth | JWT (HS256) | Stateless, scales horizontally without session storage |
 | Frontend | React + Vite | Fast SPA with live data from REST API |
 
 ### 2.2 Microservices
 
-The platform consists of **nine microservices**:
+The platform consists of **eight microservices**:
 
 1. **api-gateway** – Single entry point. Validates JWT tokens, proxies to downstream services, handles CORS.
 2. **auth-service** – User registration, login, JWT issuance, token verification. PostgreSQL-backed.
@@ -55,9 +53,8 @@ The platform consists of **nine microservices**:
 4. **sast-scanner** – Worker consuming `scan.sast.requested`; clones repo, runs Semgrep with OWASP rulesets, forwards findings.
 5. **dast-scanner** – Worker consuming `scan.dast.requested`; drives ZAP spider + active scan, forwards alerts.
 6. **compliance-engine** – Receives raw findings, maps to OWASP Top 10 2021 and CIS Controls v8, computes 0-100 compliance score.
-7. **report-generator** – Renders Jinja2 HTML reports and JSON artefacts, uploads to MinIO, triggers notifications.
-8. **notification-service** – Webhook dispatcher; notifies registered endpoints on scan completion.
-9. **dashboard** – React SPA served via nginx; consumes API gateway for scan management, history, and report viewing.
+7. **report-generator** – Renders Jinja2 HTML reports and JSON artefacts, uploads to MinIO.
+8. **dashboard** – React SPA served via nginx; consumes API gateway for scan management, history, and report viewing.
 
 ### 2.3 Infrastructure
 
@@ -83,12 +80,9 @@ The platform follows Twelve-Factor principles:
 - **Port binding** – Services export themselves via HTTP; no web server coupling
 - **Logs** – All services log to stdout in structured format
 
-### 3.2 Infrastructure as Code
+### 3.2 Kubernetes Manifests
 
-All infrastructure is declared in code:
-- **Terraform modules** for Kubernetes cluster, database, and object storage – parameterised for AWS, Azure, and GCP
-- **Helm chart** for all microservices with environment-specific value overrides
-- **Kubernetes manifests** for namespace, ingress, configmaps, and secrets
+Deployment is declared in code via raw Kubernetes manifests for namespace, ingress, configmaps, and secrets, stored in the `kubernetes/` directory.
 
 ### 3.3 Observability
 
@@ -103,8 +97,6 @@ All Python services expose Prometheus metrics via `prometheus-fastapi-instrument
 - Non-root container execution (dedicated `appuser`)
 - Secrets managed via Kubernetes Secrets (not embedded in images)
 - TLS at the ingress layer via cert-manager (Let's Encrypt)
-- S3 bucket server-side encryption (AWS SSE-S3)
-- PostgreSQL encryption at rest + deletion protection in Terraform
 
 ---
 
@@ -160,10 +152,8 @@ SAST and DAST scans run **in parallel** via separate NATS subjects with dedicate
 | Results storage | CI artefact files | MinIO (cloud object storage) |
 | Report delivery | Download from CI pipeline | Live dashboard + REST download |
 | Compliance standards | OWASP Top 10 (basic) | OWASP Top 10 2021 + CIS Controls v8 |
-| IaC | None | Terraform + Helm |
 | Observability | None | Prometheus + Grafana |
 | Scaling | None (single container) | Horizontal pod autoscaling |
-| Notification | None | Webhook dispatch |
 
 ---
 
@@ -190,25 +180,17 @@ docker-compose -f docker-compose.dev.yml up --build
 ### 6.2 Kubernetes Deployment
 
 ```bash
-# 1. Provision cloud infrastructure
-cd infra/terraform
-cp terraform.tfvars.example terraform.tfvars
-# Edit terraform.tfvars with cloud credentials and settings
-terraform init
-terraform apply -var cloud_provider=aws   # or azure / gcp
-
-# 2. Configure kubectl
-$(terraform output -raw kubeconfig_command)
-
-# 3. Create namespace
+# 1. Create namespace
 kubectl apply -f kubernetes/namespace.yaml
 
-# 4. Deploy via Helm
-helm dependency update infra/helm/
-helm upgrade --install psd-cloud infra/helm/ \
-  --namespace psd-cloud \
-  --set global.jwtSecret=<your-secret> \
-  --set apiGateway.ingress.host=<your-domain>
+# 2. Deploy backing services
+kubectl apply -f kubernetes/backing-services.yaml
+
+# 3. Deploy microservices
+kubectl apply -f kubernetes/microservices.yaml
+
+# 4. (Optional) Deploy ingress
+kubectl apply -f kubernetes/ingress.yaml
 
 # 5. Verify
 kubectl get pods -n psd-cloud
@@ -262,5 +244,3 @@ curl -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/scans/<scan_id>
 - OWASP ZAP: https://www.zaproxy.org/
 - NATS JetStream: https://docs.nats.io/nats-concepts/jetstream
 - Kubernetes: https://kubernetes.io/docs/
-- Terraform: https://developer.hashicorp.com/terraform/docs
-- Helm: https://helm.sh/docs/

@@ -46,7 +46,7 @@ class ZapClient:
 
     async def _get(self, client: httpx.AsyncClient, path: str, **params) -> dict:
         params["apikey"] = self.key
-        resp = await client.get(f"{self.base}{path}", params=params, timeout=30.0)
+        resp = await client.get(f"{self.base}{path}", params=params, timeout=120.0)
         resp.raise_for_status()
         return resp.json()
 
@@ -58,6 +58,20 @@ class ZapClient:
         data = await self._get(client, "/JSON/spider/view/status/", scanId=scan_id)
         return int(data.get("status", 0))
 
+    async def set_scan_strength(self, client: httpx.AsyncClient, strength: str) -> None:
+        """Set active scan strength: LOW, MEDIUM, HIGH, INSANE."""
+        policy_id = 0
+        for scanner in (await self._get(client, "/JSON/ascan/view/scanners/", policyId=str(policy_id))).get("scanners", []):
+            await self._get(
+                client, "/JSON/ascan/action/setScannerAlertThreshold/",
+                id=scanner["id"], alertThreshold="DEFAULT", scanPolicyName=""
+            )
+            await self._get(
+                client, "/JSON/ascan/action/setScannerAttackStrength/",
+                id=scanner["id"], attackStrength=strength, scanPolicyName=""
+            )
+        log.info("ZAP scan strength set to %s", strength)
+
     async def active_scan(self, client: httpx.AsyncClient, target_url: str) -> str:
         data = await self._get(client, "/JSON/ascan/action/scan/", url=target_url)
         return data.get("scan", "0")
@@ -66,6 +80,11 @@ class ZapClient:
         data = await self._get(client, "/JSON/ascan/view/status/", scanId=scan_id)
         return int(data.get("status", 0))
 
+    async def import_openapi(self, client: httpx.AsyncClient, spec_url: str, target_url: str) -> None:
+        """Import an OpenAPI/Swagger spec so ZAP discovers API endpoints."""
+        await self._get(client, "/JSON/openapi/action/importUrl/", url=spec_url, hostOverride="")
+        log.info("Imported OpenAPI spec from %s", spec_url)
+
     async def get_alerts(self, client: httpx.AsyncClient, target_url: str) -> list[dict]:
         data = await self._get(client, "/JSON/alert/view/alerts/", baseurl=target_url)
         return data.get("alerts", [])
@@ -73,13 +92,18 @@ class ZapClient:
 
 _SEVERITY_ORDER = {"HIGH": 4, "MEDIUM": 3, "LOW": 2, "INFORMATIONAL": 1}
 
+# ZAP self-diagnostic alerts that are not findings in the target application
+_EXCLUDED_PLUGIN_IDS = {"10116"}  # "ZAP is Out of Date"
+
 
 def _normalise_alert(alert: dict) -> dict:
+    # ZAP returns "risk" as a string: "High", "Medium", "Low", "Informational"
+    raw_risk = alert.get("risk", "Informational").upper()
     return {
         "rule_id": alert.get("pluginId", ""),
         "name": alert.get("name", ""),
-        "severity": alert.get("riskdesc", "Informational").split(" ")[0].upper(),
-        "confidence": alert.get("confidence", ""),
+        "severity": raw_risk,
+        "confidence": alert.get("confidence", "").upper(),
         "description": alert.get("description", ""),
         "url": alert.get("url", ""),
         "param": alert.get("param", ""),
@@ -111,7 +135,7 @@ def _deduplicate_findings(findings: list[dict]) -> list[dict]:
     return list(grouped.values())
 
 
-async def _process_job(job: dict) -> None:
+async def _process_job(job: dict, msg=None) -> None:
     scan_id = job["scan_id"]
     target_url = job.get("target_url")
 
@@ -119,12 +143,29 @@ async def _process_job(job: dict) -> None:
         log.warning("Scan %s has no target_url – skipping DAST", scan_id)
         return
 
-    log.info("Starting DAST scan for scan_id=%s target=%s", scan_id, target_url)
+    scan_strength = job.get("scan_strength", "HIGH").upper()
+    if scan_strength not in ("LOW", "MEDIUM", "HIGH", "INSANE"):
+        scan_strength = "LOW"
+
+    log.info("Starting DAST scan for scan_id=%s target=%s strength=%s", scan_id, target_url, scan_strength)
     zap = ZapClient(ZAP_BASE_URL, ZAP_API_KEY)
 
     with scan_duration.time():
         async with httpx.AsyncClient() as client:
             try:
+                # Configure scan strength
+                await zap.set_scan_strength(client, scan_strength)
+
+                # Try to import OpenAPI/Swagger spec for API targets
+                for swagger_path in ["/swagger/v1/swagger.json", "/swagger.json", "/openapi.json"]:
+                    try:
+                        probe = await client.get(f"{target_url.rstrip('/')}{swagger_path}", timeout=5.0)
+                        if probe.status_code == 200:
+                            await zap.import_openapi(client, f"{target_url.rstrip('/')}{swagger_path}", target_url)
+                            break
+                    except Exception:
+                        continue
+
                 # Spider phase
                 spider_id = await zap.spider_scan(client, target_url)
                 deadline = time.time() + SPIDER_TIMEOUT_SECS
@@ -132,6 +173,8 @@ async def _process_job(job: dict) -> None:
                     progress = await zap.spider_status(client, spider_id)
                     if progress >= 100:
                         break
+                    if msg:
+                        await msg.in_progress()
                     await asyncio.sleep(5)
 
                 # Active scan phase
@@ -141,10 +184,13 @@ async def _process_job(job: dict) -> None:
                     progress = await zap.active_scan_status(client, ascan_id)
                     if progress >= 100:
                         break
+                    if msg:
+                        await msg.in_progress()
                     await asyncio.sleep(10)
 
                 # Collect findings
                 alerts = await zap.get_alerts(client, target_url)
+                alerts = [a for a in alerts if a.get("pluginId") not in _EXCLUDED_PLUGIN_IDS]
                 raw_findings = [_normalise_alert(a) for a in alerts]
                 findings = _deduplicate_findings(raw_findings)
                 scans_total.labels(status="success").inc()
@@ -192,7 +238,7 @@ async def main() -> None:
     async def handler(msg):
         try:
             job = json.loads(msg.data.decode())
-            await _process_job(job)
+            await _process_job(job, msg)
             await msg.ack()
         except Exception as exc:
             log.exception("Error processing DAST job: %s", exc)

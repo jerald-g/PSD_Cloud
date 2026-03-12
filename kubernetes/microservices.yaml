@@ -204,8 +204,6 @@ spec:
               value: "http://scan-orchestrator:8000"
             - name: REPORT_GENERATOR_URL
               value: "http://report-generator:8000"
-            - name: NOTIFICATION_URL
-              value: "http://notification-service:8000"
           livenessProbe:
             httpGet: { path: /health, port: 8000 }
             initialDelaySeconds: 10
@@ -267,8 +265,6 @@ spec:
                   key: minio-secret-key
             - name: ORCHESTRATOR_URL
               value: "http://scan-orchestrator:8000"
-            - name: NOTIFICATION_URL
-              value: "http://notification-service:8000"
           livenessProbe:
             httpGet: { path: /health, port: 8000 }
             initialDelaySeconds: 10
@@ -289,53 +285,6 @@ spec:
     - port: 8000
       targetPort: 8000
 
----
-# ─── Notification Service ─────────────────────────────────────────────────────
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: notification-service
-  namespace: psd-cloud
-  labels:
-    app: notification-service
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: notification-service
-  template:
-    metadata:
-      labels:
-        app: notification-service
-    spec:
-      containers:
-        - name: notification-service
-          image: psd-cloud/notification-service:latest
-          imagePullPolicy: Never
-          ports:
-            - containerPort: 8000
-          envFrom:
-            - configMapRef:
-                name: psd-cloud-config
-          livenessProbe:
-            httpGet: { path: /health, port: 8000 }
-            initialDelaySeconds: 10
-            periodSeconds: 20
-          resources:
-            requests: { cpu: "50m", memory: "64Mi" }
-            limits:   { cpu: "200m", memory: "128Mi" }
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: notification-service
-  namespace: psd-cloud
-spec:
-  selector:
-    app: notification-service
-  ports:
-    - port: 8000
-      targetPort: 8000
 
 ---
 # ─── API Gateway ──────────────────────────────────────────────────────────────
