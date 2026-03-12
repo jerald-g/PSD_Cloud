@@ -129,6 +129,14 @@ This starts three vulnerable apps:
 
 Use these as scan targets to test the platform's detection capabilities.
 
+### Secrets in Test Targets
+
+The test targets contain **intentionally hardcoded secrets** as part of their vulnerability demonstrations (OWASP A02/A05). All values are clearly fake and use `EXAMPLE`/`FAKE`/`DEMO` markers to avoid triggering GitHub Push Protection or secret scanners. These include fake Stripe keys (`sk_test_EXAMPLE_...`), AWS example credentials, and placeholder passwords.
+
+> **Do not replace these with real secrets.** They exist to validate that the platform's SAST/DAST scanners correctly detect hardcoded credentials.
+
+The **platform services** (auth-service, api-gateway, etc.) handle secrets correctly via environment variables in `docker-compose.dev.yml`. 
+
 ## Checking Service Health
 
 Every service exposes a `/health` endpoint:
