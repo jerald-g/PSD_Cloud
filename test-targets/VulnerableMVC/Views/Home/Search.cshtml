@@ -1,0 +1,30 @@
+@model List<VulnerableMVC.Models.BlogPost>
+@{ ViewBag.Title = "Search"; }
+
+<h1>Search Results</h1>
+
+<!-- VULNERABILITY (A03): Reflected XSS – raw user input rendered without encoding -->
+@if (ViewBag.Query != null)
+{
+    <p>Results for: @Html.Raw(ViewBag.Query)</p>
+}
+
+<form action="/Home/Search" method="get">
+    <input type="text" name="query" value="@ViewBag.Query" placeholder="Search..." />
+    <button type="submit">Search</button>
+</form>
+
+@if (Model != null && Model.Any())
+{
+    @foreach (var post in Model)
+    {
+        <div class="card">
+            <h3>@post.Title</h3>
+            <p>@post.Content</p>
+        </div>
+    }
+}
+else
+{
+    <p>No results found.</p>
+}

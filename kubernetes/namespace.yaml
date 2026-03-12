@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: psd-cloud
+  labels:
+    app.kubernetes.io/name: psd-cloud
+    app.kubernetes.io/managed-by: helm

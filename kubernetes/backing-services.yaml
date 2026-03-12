@@ -1,0 +1,357 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# PSD Cloud – Backing Services (PostgreSQL, Redis, NATS, MinIO, SonarQube, ZAP)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ─── Secrets ───────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Secret
+metadata:
+  name: psd-cloud-secrets
+  namespace: psd-cloud
+type: Opaque
+stringData:
+  jwt-secret: "k8s-jwt-secret-change-in-production"
+  db-password: "psd_secret"
+  minio-access-key: "minioadmin"
+  minio-secret-key: "minioadmin123"
+
+---
+# ─── ConfigMap ─────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: psd-cloud-config
+  namespace: psd-cloud
+data:
+  DATABASE_URL: "postgresql+asyncpg://psd:psd_secret@postgres:5432/psd_cloud"
+  NATS_URL: "nats://nats:4222"
+  MINIO_ENDPOINT: "minio:9000"
+  MINIO_BUCKET: "psd-reports"
+  SONARQUBE_URL: "http://sonarqube:9000"
+  ZAP_BASE_URL: "http://zap:8090"
+  JWT_ALGORITHM: "HS256"
+  JWT_EXPIRE_MINUTES: "60"
+
+---
+# ─── PostgreSQL ────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: psd-cloud
+  labels:
+    app: postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: psd_cloud
+            - name: POSTGRES_USER
+              value: psd
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: psd-cloud-secrets
+                  key: db-password
+          volumeMounts:
+            - name: pgdata
+              mountPath: /var/lib/postgresql/data
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "psd", "-d", "psd_cloud"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests: { cpu: "100m", memory: "256Mi" }
+            limits:   { cpu: "500m", memory: "512Mi" }
+      volumes:
+        - name: pgdata
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: psd-cloud
+spec:
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
+
+---
+# ─── Redis ─────────────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: psd-cloud
+  labels:
+    app: redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          ports:
+            - containerPort: 6379
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests: { cpu: "50m", memory: "64Mi" }
+            limits:   { cpu: "200m", memory: "128Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: psd-cloud
+spec:
+  selector:
+    app: redis
+  ports:
+    - port: 6379
+      targetPort: 6379
+
+---
+# ─── NATS JetStream ───────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nats
+  namespace: psd-cloud
+  labels:
+    app: nats
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nats
+  template:
+    metadata:
+      labels:
+        app: nats
+    spec:
+      containers:
+        - name: nats
+          image: nats:2.10-alpine
+          args: ["--jetstream", "--http_port", "8222"]
+          ports:
+            - containerPort: 4222
+            - containerPort: 8222
+          resources:
+            requests: { cpu: "50m", memory: "64Mi" }
+            limits:   { cpu: "200m", memory: "256Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nats
+  namespace: psd-cloud
+spec:
+  selector:
+    app: nats
+  ports:
+    - name: client
+      port: 4222
+      targetPort: 4222
+    - name: monitor
+      port: 8222
+      targetPort: 8222
+
+---
+# ─── MinIO (S3-compatible object storage) ──────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minio
+  namespace: psd-cloud
+  labels:
+    app: minio
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: minio
+  template:
+    metadata:
+      labels:
+        app: minio
+    spec:
+      containers:
+        - name: minio
+          image: minio/minio:latest
+          args: ["server", "/data", "--console-address", ":9001"]
+          ports:
+            - containerPort: 9000
+            - containerPort: 9001
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: psd-cloud-secrets
+                  key: minio-access-key
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: psd-cloud-secrets
+                  key: minio-secret-key
+          resources:
+            requests: { cpu: "100m", memory: "256Mi" }
+            limits:   { cpu: "500m", memory: "512Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  namespace: psd-cloud
+spec:
+  selector:
+    app: minio
+  ports:
+    - name: api
+      port: 9000
+      targetPort: 9000
+    - name: console
+      port: 9001
+      targetPort: 9001
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio-console
+  namespace: psd-cloud
+spec:
+  type: NodePort
+  selector:
+    app: minio
+  ports:
+    - port: 9001
+      targetPort: 9001
+      nodePort: 30901
+
+---
+# ─── SonarQube (SAST engine) ──────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sonarqube
+  namespace: psd-cloud
+  labels:
+    app: sonarqube
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sonarqube
+  template:
+    metadata:
+      labels:
+        app: sonarqube
+    spec:
+      containers:
+        - name: sonarqube
+          image: sonarqube:10.5-community
+          ports:
+            - containerPort: 9000
+          env:
+            - name: SONAR_ES_BOOTSTRAP_CHECKS_DISABLE
+              value: "true"
+          resources:
+            requests: { cpu: "500m", memory: "1Gi" }
+            limits:   { cpu: "2", memory: "3Gi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sonarqube
+  namespace: psd-cloud
+spec:
+  selector:
+    app: sonarqube
+  ports:
+    - port: 9000
+      targetPort: 9000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sonarqube-external
+  namespace: psd-cloud
+spec:
+  type: NodePort
+  selector:
+    app: sonarqube
+  ports:
+    - port: 9000
+      targetPort: 9000
+      nodePort: 30900
+
+---
+# ─── OWASP ZAP (DAST engine) ──────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zap
+  namespace: psd-cloud
+  labels:
+    app: zap
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: zap
+  template:
+    metadata:
+      labels:
+        app: zap
+    spec:
+      containers:
+        - name: zap
+          image: ghcr.io/zaproxy/zaproxy:stable
+          command: ["zap.sh", "-daemon", "-host", "0.0.0.0", "-port", "8090",
+                    "-config", "api.addrs.addr.name=.*",
+                    "-config", "api.addrs.addr.regex=true",
+                    "-config", "api.disablekey=true"]
+          ports:
+            - containerPort: 8090
+          resources:
+            requests: { cpu: "250m", memory: "512Mi" }
+            limits:   { cpu: "1", memory: "1Gi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: zap
+  namespace: psd-cloud
+spec:
+  selector:
+    app: zap
+  ports:
+    - port: 8090
+      targetPort: 8090

@@ -1,0 +1,21 @@
+@model List<VulnerableMVC.Models.BlogPost>
+@{ ViewBag.Title = "Home"; }
+
+<h1>Vulnerable Blog</h1>
+<p>This application intentionally contains OWASP Top 10 vulnerabilities for security testing.</p>
+
+<h2>Blog Posts</h2>
+@foreach (var post in Model)
+{
+    <div class="card">
+        <h3><a href="/Home/Post/@post.Id">@post.Title</a></h3>
+        <p>@post.Content</p>
+        <small>By @post.Author</small>
+    </div>
+}
+
+<h2>Search Posts</h2>
+<form action="/Home/Search" method="get">
+    <input type="text" name="query" placeholder="Search blog posts..." />
+    <button type="submit">Search</button>
+</form>

@@ -1,0 +1,18 @@
+@{ ViewBag.Title = "Create Profile"; }
+
+<h1>Create Profile</h1>
+<div class="card">
+    <!-- VULNERABILITY: No anti-forgery token -->
+    <form action="/Profile/Create" method="post">
+        <label>Name</label>
+        <input type="text" name="Name" required />
+
+        <label>Bio (supports HTML)</label>
+        <textarea name="Bio" rows="5" placeholder="Tell us about yourself... <b>HTML is allowed!</b>"></textarea>
+
+        <label>Website</label>
+        <input type="url" name="Website" placeholder="https://your-website.com" />
+
+        <button type="submit">Create Profile</button>
+    </form>
+</div>

@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PSD Cloud Security Report – {{ project_name }}</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f7fa; color: #1a202c; line-height: 1.6; }
+    .container { max-width: 1100px; margin: 0 auto; padding: 2rem; }
+
+    header { background: linear-gradient(135deg, #1a365d 0%, #2b6cb0 100%); color: white; padding: 2rem; border-radius: 12px; margin-bottom: 2rem; }
+    header h1 { font-size: 1.8rem; margin-bottom: 0.5rem; }
+    header .meta { opacity: 0.85; font-size: 0.9rem; }
+
+    .score-card { display: flex; gap: 1rem; margin-bottom: 2rem; flex-wrap: wrap; }
+    .score-box { flex: 1; min-width: 140px; background: white; border-radius: 12px; padding: 1.2rem 1rem; text-align: center; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+    .score-box .value { font-size: 2.2rem; font-weight: 700; }
+    .score-box .label { font-size: 0.82rem; color: #718096; margin-top: 0.25rem; }
+    .score-good { color: #38a169; }
+    .score-warn { color: #d69e2e; }
+    .score-bad  { color: #e53e3e; }
+
+    section { background: white; border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem; box-shadow: 0 2px 8px rgba(0,0,0,0.08); overflow: hidden; }
+    section h2 { font-size: 1.15rem; margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 2px solid #e2e8f0; color: #2d3748; }
+
+    .owasp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 0.75rem; }
+    .owasp-card { background: #ebf8ff; border: 1px solid #bee3f8; border-radius: 10px; padding: 0.8rem; text-align: center; }
+    .owasp-card .count { font-size: 1.6rem; font-weight: 700; color: #2b6cb0; }
+    .owasp-card .cat-id { font-size: 0.78rem; font-weight: 600; color: #2c5282; margin-top: 0.15rem; }
+    .owasp-card .cat-name { font-size: 0.72rem; color: #4a5568; margin-top: 0.1rem; }
+
+    .findings-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; table-layout: fixed; }
+    .findings-table th { background: #edf2f7; padding: 0.6rem 0.75rem; text-align: left; font-weight: 600; color: #4a5568; position: sticky; top: 0; overflow: hidden; }
+    .findings-table td { padding: 0.55rem 0.75rem; border-bottom: 1px solid #edf2f7; vertical-align: top; overflow: hidden; text-overflow: ellipsis; }
+    .findings-table tr:hover td { background: #f7fafc; }
+
+    .badge { display: inline-block; padding: 0.15rem 0.55rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; letter-spacing: 0.02em; }
+    .badge-CRITICAL { background: #fed7d7; color: #c53030; }
+    .badge-HIGH     { background: #feebc8; color: #c05621; }
+    .badge-MEDIUM   { background: #fefcbf; color: #975a16; }
+    .badge-LOW      { background: #c6f6d5; color: #276749; }
+    .badge-INFO, .badge-INFORMATIONAL { background: #e2e8f0; color: #4a5568; }
+
+    .owasp-tag { display: inline-block; background: #ebf4ff; color: #2b6cb0; padding: 0.1rem 0.45rem; border-radius: 4px; font-size: 0.73rem; font-weight: 600; white-space: nowrap; }
+    .location { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: 'Menlo', 'Consolas', monospace; font-size: 0.8rem; color: #553c9a; }
+    .msg-cell { word-wrap: break-word; overflow-wrap: break-word; color: #4a5568; }
+
+    .table-wrapper { overflow-x: auto; width: 100%; }
+
+    footer { text-align: center; font-size: 0.8rem; color: #a0aec0; margin-top: 2rem; padding-top: 1rem; border-top: 1px solid #e2e8f0; }
+  </style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>PSD Cloud Security Report</h1>
+    <div class="meta">
+      <strong>Project:</strong> {{ project_name }} &nbsp;&bull;&nbsp;
+      <strong>Scan Type:</strong> {{ scan_type|upper }} &nbsp;&bull;&nbsp;
+      <strong>Scan ID:</strong> <span style="font-family:monospace">{{ scan_id[:12] }}…</span> &nbsp;&bull;&nbsp;
+      <strong>Generated:</strong> {{ generated_at }}
+    </div>
+  </header>
+
+  <!-- Score cards -->
+  <div class="score-card">
+    <div class="score-box">
+      <div class="value {% if compliance_score >= 80 %}score-good{% elif compliance_score >= 50 %}score-warn{% else %}score-bad{% endif %}">
+        {{ compliance_score }}
+      </div>
+      <div class="label">Compliance Score / 100</div>
+    </div>
+    <div class="score-box">
+      <div class="value">{{ total_findings }}</div>
+      <div class="label">Total Findings</div>
+    </div>
+    <div class="score-box">
+      <div class="value score-bad">{{ severity_counts.get('CRITICAL', 0) }}</div>
+      <div class="label">Critical</div>
+    </div>
+    <div class="score-box">
+      <div class="value" style="color:#c05621">{{ severity_counts.get('HIGH', 0) }}</div>
+      <div class="label">High</div>
+    </div>
+    <div class="score-box">
+      <div class="value score-warn">{{ severity_counts.get('MEDIUM', 0) }}</div>
+      <div class="label">Medium</div>
+    </div>
+    <div class="score-box">
+      <div class="value score-good">{{ severity_counts.get('LOW', 0) + severity_counts.get('INFO', 0) }}</div>
+      <div class="label">Low / Info</div>
+    </div>
+  </div>
+
+  <!-- OWASP Top 10 breakdown -->
+  {% if owasp_counts %}
+  <section>
+    <h2>OWASP Top 10 2021 Breakdown</h2>
+    <div class="owasp-grid">
+      {% for cat_id, count in owasp_counts|dictsort(by='value', reverse=true) %}
+      <div class="owasp-card">
+        <div class="count">{{ count }}</div>
+        <div class="cat-id">{{ cat_id }}</div>
+        <div class="cat-name">{{ owasp_names.get(cat_id, '') }}</div>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+  <!-- Findings table -->
+  <section>
+    <h2>All Findings ({{ total_findings }})</h2>
+    {% if findings %}
+    <div class="table-wrapper">
+    <table class="findings-table">
+      <thead>
+        <tr>
+          <th style="width:8%">Severity</th>
+          <th style="width:14%">OWASP Category</th>
+          <th style="width:16%">Rule</th>
+          <th style="width:22%">Location</th>
+          <th style="width:40%">Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for f in findings %}
+        <tr>
+          <td><span class="badge badge-{{ f.severity|upper }}">{{ f.severity|upper }}</span></td>
+          <td>
+            <span class="owasp-tag">{{ f.owasp_category }}</span>
+            {% if f.owasp_name and f.owasp_name != 'Unknown' %}
+            <div style="font-size:0.7rem;color:#718096;margin-top:2px">{{ f.owasp_name }}</div>
+            {% endif %}
+          </td>
+          <td style="font-size:0.82rem">{{ f.rule_id or f.name or '—' }}</td>
+          <td class="location" title="{{ f.file or f.url or '' }}">
+            {{ f.file or f.url or '—' }}{% if f.line_start %}:{{ f.line_start }}{% endif %}
+          </td>
+          <td class="msg-cell">{{ (f.message or f.description or '—')[:250] }}{% if (f.message or f.description or '')|length > 250 %}…{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    {% else %}
+    <p style="color:#718096;text-align:center;padding:2rem 0">No findings detected — clean scan!</p>
+    {% endif %}
+  </section>
+
+  <footer>
+    Generated by PSD Cloud Security Platform &mdash; {{ generated_at }}
+  </footer>
+</div>
+</body>
+</html>

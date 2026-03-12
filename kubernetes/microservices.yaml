@@ -1,0 +1,470 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# PSD Cloud – Application Microservices
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ─── Auth Service ──────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-service
+  namespace: psd-cloud
+  labels:
+    app: auth-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: auth-service
+  template:
+    metadata:
+      labels:
+        app: auth-service
+    spec:
+      containers:
+        - name: auth-service
+          image: psd-cloud/auth-service:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: psd-cloud-config
+          env:
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: psd-cloud-secrets
+                  key: jwt-secret
+          livenessProbe:
+            httpGet: { path: /health, port: 8000 }
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet: { path: /health, port: 8000 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests: { cpu: "100m", memory: "128Mi" }
+            limits:   { cpu: "250m", memory: "256Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-service
+  namespace: psd-cloud
+spec:
+  selector:
+    app: auth-service
+  ports:
+    - port: 8000
+      targetPort: 8000
+
+---
+# ─── Scan Orchestrator ─────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scan-orchestrator
+  namespace: psd-cloud
+  labels:
+    app: scan-orchestrator
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: scan-orchestrator
+  template:
+    metadata:
+      labels:
+        app: scan-orchestrator
+    spec:
+      containers:
+        - name: scan-orchestrator
+          image: psd-cloud/scan-orchestrator:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: psd-cloud-config
+          livenessProbe:
+            httpGet: { path: /health, port: 8000 }
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet: { path: /health, port: 8000 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests: { cpu: "100m", memory: "128Mi" }
+            limits:   { cpu: "500m", memory: "512Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: scan-orchestrator
+  namespace: psd-cloud
+spec:
+  selector:
+    app: scan-orchestrator
+  ports:
+    - port: 8000
+      targetPort: 8000
+
+---
+# ─── SAST Scanner (SonarQube worker) ──────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sast-scanner
+  namespace: psd-cloud
+  labels:
+    app: sast-scanner
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sast-scanner
+  template:
+    metadata:
+      labels:
+        app: sast-scanner
+    spec:
+      containers:
+        - name: sast-scanner
+          image: psd-cloud/sast-scanner:latest
+          imagePullPolicy: Never
+          envFrom:
+            - configMapRef:
+                name: psd-cloud-config
+          resources:
+            requests: { cpu: "500m", memory: "512Mi" }
+            limits:   { cpu: "2", memory: "2Gi" }
+
+---
+# ─── DAST Scanner (ZAP worker) ────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dast-scanner
+  namespace: psd-cloud
+  labels:
+    app: dast-scanner
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dast-scanner
+  template:
+    metadata:
+      labels:
+        app: dast-scanner
+    spec:
+      containers:
+        - name: dast-scanner
+          image: psd-cloud/dast-scanner:latest
+          imagePullPolicy: Never
+          envFrom:
+            - configMapRef:
+                name: psd-cloud-config
+          resources:
+            requests: { cpu: "250m", memory: "256Mi" }
+            limits:   { cpu: "1", memory: "1Gi" }
+
+---
+# ─── Compliance Engine ─────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: compliance-engine
+  namespace: psd-cloud
+  labels:
+    app: compliance-engine
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: compliance-engine
+  template:
+    metadata:
+      labels:
+        app: compliance-engine
+    spec:
+      containers:
+        - name: compliance-engine
+          image: psd-cloud/compliance-engine:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: psd-cloud-config
+          env:
+            - name: ORCHESTRATOR_URL
+              value: "http://scan-orchestrator:8000"
+            - name: REPORT_GENERATOR_URL
+              value: "http://report-generator:8000"
+            - name: NOTIFICATION_URL
+              value: "http://notification-service:8000"
+          livenessProbe:
+            httpGet: { path: /health, port: 8000 }
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests: { cpu: "100m", memory: "128Mi" }
+            limits:   { cpu: "500m", memory: "256Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: compliance-engine
+  namespace: psd-cloud
+spec:
+  selector:
+    app: compliance-engine
+  ports:
+    - port: 8000
+      targetPort: 8000
+
+---
+# ─── Report Generator ─────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: report-generator
+  namespace: psd-cloud
+  labels:
+    app: report-generator
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: report-generator
+  template:
+    metadata:
+      labels:
+        app: report-generator
+    spec:
+      containers:
+        - name: report-generator
+          image: psd-cloud/report-generator:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: psd-cloud-config
+          env:
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: psd-cloud-secrets
+                  key: minio-access-key
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: psd-cloud-secrets
+                  key: minio-secret-key
+            - name: ORCHESTRATOR_URL
+              value: "http://scan-orchestrator:8000"
+            - name: NOTIFICATION_URL
+              value: "http://notification-service:8000"
+          livenessProbe:
+            httpGet: { path: /health, port: 8000 }
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests: { cpu: "100m", memory: "128Mi" }
+            limits:   { cpu: "500m", memory: "512Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: report-generator
+  namespace: psd-cloud
+spec:
+  selector:
+    app: report-generator
+  ports:
+    - port: 8000
+      targetPort: 8000
+
+---
+# ─── Notification Service ─────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-service
+  namespace: psd-cloud
+  labels:
+    app: notification-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: notification-service
+  template:
+    metadata:
+      labels:
+        app: notification-service
+    spec:
+      containers:
+        - name: notification-service
+          image: psd-cloud/notification-service:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: psd-cloud-config
+          livenessProbe:
+            httpGet: { path: /health, port: 8000 }
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests: { cpu: "50m", memory: "64Mi" }
+            limits:   { cpu: "200m", memory: "128Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notification-service
+  namespace: psd-cloud
+spec:
+  selector:
+    app: notification-service
+  ports:
+    - port: 8000
+      targetPort: 8000
+
+---
+# ─── API Gateway ──────────────────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: psd-cloud
+  labels:
+    app: api-gateway
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: api-gateway
+  template:
+    metadata:
+      labels:
+        app: api-gateway
+    spec:
+      containers:
+        - name: api-gateway
+          image: psd-cloud/api-gateway:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8000
+          env:
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: psd-cloud-secrets
+                  key: jwt-secret
+            - name: JWT_ALGORITHM
+              value: "HS256"
+            - name: AUTH_SERVICE_URL
+              value: "http://auth-service:8000"
+            - name: ORCHESTRATOR_URL
+              value: "http://scan-orchestrator:8000"
+            - name: REPORT_GENERATOR_URL
+              value: "http://report-generator:8000"
+          livenessProbe:
+            httpGet: { path: /health, port: 8000 }
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet: { path: /health, port: 8000 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests: { cpu: "100m", memory: "128Mi" }
+            limits:   { cpu: "500m", memory: "256Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-gateway
+  namespace: psd-cloud
+spec:
+  selector:
+    app: api-gateway
+  ports:
+    - port: 8000
+      targetPort: 8000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-gateway-external
+  namespace: psd-cloud
+spec:
+  type: NodePort
+  selector:
+    app: api-gateway
+  ports:
+    - port: 8000
+      targetPort: 8000
+      nodePort: 30080
+
+---
+# ─── Dashboard (React SPA) ───────────────────────────────────────────────────
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dashboard
+  namespace: psd-cloud
+  labels:
+    app: dashboard
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: dashboard
+  template:
+    metadata:
+      labels:
+        app: dashboard
+    spec:
+      containers:
+        - name: dashboard
+          image: psd-cloud/dashboard:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 80
+          resources:
+            requests: { cpu: "50m", memory: "64Mi" }
+            limits:   { cpu: "200m", memory: "128Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dashboard
+  namespace: psd-cloud
+spec:
+  selector:
+    app: dashboard
+  ports:
+    - port: 80
+      targetPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dashboard-external
+  namespace: psd-cloud
+spec:
+  type: NodePort
+  selector:
+    app: dashboard
+  ports:
+    - port: 80
+      targetPort: 80
+      nodePort: 30000

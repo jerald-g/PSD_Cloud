@@ -1,0 +1,10 @@
+@model VulnerableMVC.Models.UserProfile
+@{ ViewBag.Title = Model.Name; }
+
+<div class="card">
+    <h1>@Model.Name</h1>
+    <!-- VULNERABILITY (A03): Stored XSS – bio rendered as raw HTML -->
+    <div>@Html.Raw(Model.Bio)</div>
+    <!-- VULNERABILITY (A10): Open redirect via website link (if attacker controls content) -->
+    <p>Website: <a href="@Model.Website">@Model.Website</a></p>
+</div>

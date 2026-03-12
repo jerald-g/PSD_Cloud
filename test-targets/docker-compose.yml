@@ -1,0 +1,101 @@
+# Test Targets + SonarQube + OWASP ZAP
+# Runs the 3 vulnerable C# apps alongside the scanning infrastructure.
+#
+# Usage:
+#   docker-compose -f test-targets/docker-compose.yml up --build
+#
+# After startup:
+#   VulnerableAPI:        http://localhost:5000  (Swagger at /swagger)
+#   VulnerableMVC:        http://localhost:5001
+#   VulnerableMinimalAPI: http://localhost:5002  (Swagger at /swagger)
+#   SonarQube:            http://localhost:9000  (admin/admin → change on first login)
+#   ZAP Proxy:            http://localhost:8090
+#
+# SAST scan:
+#   dotnet sonarscanner begin /k:"VulnerableAPI" /d:sonar.host.url=http://localhost:9000
+#   dotnet build test-targets/VulnerableAPI/
+#   dotnet sonarscanner end
+#
+# DAST scan:
+#   curl "http://localhost:8090/JSON/spider/action/scan/?url=http://vulnerable-api:5000"
+#   curl "http://localhost:8090/JSON/ascan/action/scan/?url=http://vulnerable-api:5000"
+#   curl "http://localhost:8090/JSON/alert/view/alerts/?baseurl=http://vulnerable-api:5000"
+
+networks:
+  scan-net:
+    driver: bridge
+
+volumes:
+  sonarqube-data:
+  sonarqube-extensions:
+  sonarqube-logs:
+
+services:
+
+  # ─── Vulnerable Test Targets ─────────────────────────────────────────────────
+
+  vulnerable-api:
+    build:
+      context: ./VulnerableAPI
+      dockerfile: Dockerfile
+    networks:
+      - scan-net
+    ports:
+      - "5000:5000"
+    restart: unless-stopped
+
+  vulnerable-mvc:
+    build:
+      context: ./VulnerableMVC
+      dockerfile: Dockerfile
+    networks:
+      - scan-net
+    ports:
+      - "5001:5001"
+    restart: unless-stopped
+
+  vulnerable-minimal-api:
+    build:
+      context: ./VulnerableMinimalAPI
+      dockerfile: Dockerfile
+    networks:
+      - scan-net
+    ports:
+      - "5002:5002"
+    restart: unless-stopped
+
+  # ─── SonarQube (SAST) ───────────────────────────────────────────────────────
+
+  sonarqube:
+    image: sonarqube:10.5-community
+    environment:
+      SONAR_ES_BOOTSTRAP_CHECKS_DISABLE: "true"
+    volumes:
+      - sonarqube-data:/opt/sonarqube/data
+      - sonarqube-extensions:/opt/sonarqube/extensions
+      - sonarqube-logs:/opt/sonarqube/logs
+    networks:
+      - scan-net
+    ports:
+      - "9000:9000"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9000/api/system/status | grep -q UP"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 90s
+
+  # ─── OWASP ZAP (DAST) ───────────────────────────────────────────────────────
+
+  zap:
+    image: ghcr.io/zaproxy/zaproxy:stable
+    command: >
+      zap.sh -daemon -host 0.0.0.0 -port 8090
+      -config api.addrs.addr.name=.*
+      -config api.addrs.addr.regex=true
+      -config api.disablekey=true
+    networks:
+      - scan-net
+    ports:
+      - "8090:8090"
+    restart: unless-stopped

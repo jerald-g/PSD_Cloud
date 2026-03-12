@@ -1,0 +1,370 @@
+# PSD Cloud Security Platform – Local Development Stack
+# Starts all microservices and backing infrastructure for local development.
+# Usage: docker-compose -f docker-compose.dev.yml up --build
+
+networks:
+  psd-net:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  minio-data:
+  grafana-data:
+  prometheus-data:
+  sonarqube-data:
+  sonarqube-extensions:
+
+services:
+
+  # ─── Backing Infrastructure ────────────────────────────────────────────────
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: psd_cloud
+      POSTGRES_USER: psd
+      POSTGRES_PASSWORD: psd_secret
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - psd-net
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U psd -d psd_cloud"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    networks:
+      - psd-net
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  nats:
+    image: nats:2.10-alpine
+    command: ["--jetstream", "--http_port", "8222"]
+    networks:
+      - psd-net
+    ports:
+      - "4222:4222"   # client
+      - "8222:8222"   # monitoring
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    volumes:
+      - minio-data:/data
+    networks:
+      - psd-net
+    ports:
+      - "9000:9000"   # API
+      - "9001:9001"   # Console UI
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  # MinIO bucket initialiser (runs once and exits)
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+        mc alias set local http://minio:9000 minioadmin minioadmin123 &&
+        mc mb --ignore-existing local/psd-reports &&
+        mc policy set download local/psd-reports
+      "
+    networks:
+      - psd-net
+
+  # ─── SonarQube (SAST Engine) ─────────────────────────────────────────────────
+
+  sonarqube:
+    image: sonarqube:10.5-community
+    environment:
+      SONAR_ES_BOOTSTRAP_CHECKS_DISABLE: "true"
+      SONAR_WEB_JAVAOPTS: "-Xmx512m -Xms256m"
+      SONAR_CE_JAVAOPTS: "-Xmx512m -Xms256m"
+      SONAR_SEARCH_JAVAOPTS: "-Xmx1g -Xms512m -XX:MaxDirectMemorySize=256m"
+    volumes:
+      - sonarqube-data:/opt/sonarqube/data
+      - sonarqube-extensions:/opt/sonarqube/extensions
+    networks:
+      - psd-net
+    ports:
+      - "9100:9000"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9000/api/system/status | grep -q UP"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 90s
+
+  # SonarQube init – disable forced authentication for local dev
+  sonarqube-init:
+    image: curlimages/curl:latest
+    depends_on:
+      sonarqube:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+        echo 'Configuring SonarQube for local dev...' &&
+        curl -sf -u admin:admin -X POST 'http://sonarqube:9000/api/settings/set?key=sonar.forceAuthentication&value=false' &&
+        echo 'Disabled force authentication.' &&
+        curl -sf -u admin:admin -X POST 'http://sonarqube:9000/api/permissions/add_group?groupName=Anyone&permission=scan' &&
+        echo 'Granted scan permission to Anyone.' &&
+        curl -sf -u admin:admin -X POST 'http://sonarqube:9000/api/permissions/add_group?groupName=Anyone&permission=provisioning' &&
+        echo 'Granted project creation permission to Anyone.' &&
+        echo 'SonarQube ready for local dev.'
+      "
+    networks:
+      - psd-net
+
+  # ─── OWASP ZAP (DAST Engine) ────────────────────────────────────────────────
+
+  zap:
+    image: ghcr.io/zaproxy/zaproxy:stable
+    command: >
+      zap.sh -daemon -host 0.0.0.0 -port 8090
+      -config api.addrs.addr.name=.*
+      -config api.addrs.addr.regex=true
+      -config api.disablekey=true
+    networks:
+      - psd-net
+    ports:
+      - "8090:8090"
+
+  # ─── Observability ──────────────────────────────────────────────────────────
+
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    volumes:
+      - ./infra/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+    networks:
+      - psd-net
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:10.4.0
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./infra/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+    networks:
+      - psd-net
+    ports:
+      - "3001:3000"
+    depends_on:
+      - prometheus
+
+  # ─── Microservices ──────────────────────────────────────────────────────────
+
+  auth-service:
+    build:
+      context: ./services/auth-service
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgresql+asyncpg://psd:psd_secret@postgres:5432/psd_cloud
+      JWT_SECRET: dev-jwt-secret-change-in-production
+      JWT_ALGORITHM: HS256
+      JWT_EXPIRE_MINUTES: "60"
+    networks:
+      - psd-net
+    ports:
+      - "8001:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  scan-orchestrator:
+    build:
+      context: ./services/scan-orchestrator
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgresql+asyncpg://psd:psd_secret@postgres:5432/psd_cloud
+      NATS_URL: nats://nats:4222
+      REDIS_URL: redis://redis:6379/0
+    networks:
+      - psd-net
+    ports:
+      - "8002:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  sast-scanner:
+    build:
+      context: ./services/sast-scanner
+      dockerfile: Dockerfile
+    environment:
+      NATS_URL: nats://nats:4222
+      DATABASE_URL: postgresql+asyncpg://psd:psd_secret@postgres:5432/psd_cloud
+      SONARQUBE_URL: http://sonarqube:9000
+      SONARQUBE_TOKEN: ""
+    networks:
+      - psd-net
+    depends_on:
+      nats:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      sonarqube:
+        condition: service_healthy
+      sonarqube-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  dast-scanner:
+    build:
+      context: ./services/dast-scanner
+      dockerfile: Dockerfile
+    environment:
+      NATS_URL: nats://nats:4222
+      DATABASE_URL: postgresql+asyncpg://psd:psd_secret@postgres:5432/psd_cloud
+      ZAP_BASE_URL: http://zap:8090
+      ZAP_API_KEY: ""
+    networks:
+      - psd-net
+    depends_on:
+      - nats
+      - postgres
+      - zap
+    restart: unless-stopped
+
+  compliance-engine:
+    build:
+      context: ./services/compliance-engine
+      dockerfile: Dockerfile
+    environment:
+      NATS_URL: nats://nats:4222
+      DATABASE_URL: postgresql+asyncpg://psd:psd_secret@postgres:5432/psd_cloud
+    networks:
+      - psd-net
+    depends_on:
+      - nats
+      - postgres
+    restart: unless-stopped
+
+  report-generator:
+    build:
+      context: ./services/report-generator
+      dockerfile: Dockerfile
+    environment:
+      NATS_URL: nats://nats:4222
+      DATABASE_URL: postgresql+asyncpg://psd:psd_secret@postgres:5432/psd_cloud
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin123
+      MINIO_BUCKET: psd-reports
+    networks:
+      - psd-net
+    depends_on:
+      - nats
+      - minio
+      - postgres
+    restart: unless-stopped
+
+  notification-service:
+    build:
+      context: ./services/notification-service
+      dockerfile: Dockerfile
+    environment:
+      NATS_URL: nats://nats:4222
+      DATABASE_URL: postgresql+asyncpg://psd:psd_secret@postgres:5432/psd_cloud
+    networks:
+      - psd-net
+    depends_on:
+      - nats
+    restart: unless-stopped
+
+  api-gateway:
+    build:
+      context: ./services/api-gateway
+      dockerfile: Dockerfile
+    environment:
+      JWT_SECRET: dev-jwt-secret-change-in-production
+      JWT_ALGORITHM: HS256
+      AUTH_SERVICE_URL: http://auth-service:8000
+      ORCHESTRATOR_URL: http://scan-orchestrator:8000
+      REPORT_GENERATOR_URL: http://report-generator:8000
+    networks:
+      - psd-net
+    ports:
+      - "8085:8000"
+    depends_on:
+      - auth-service
+      - scan-orchestrator
+    restart: unless-stopped
+
+  dashboard:
+    build:
+      context: ./services/dashboard
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: http://localhost:8085
+    networks:
+      - psd-net
+    ports:
+      - "3000:80"
+    depends_on:
+      - api-gateway
+    restart: unless-stopped
+
+  # ─── Vulnerable Test Targets (for DAST scanning) ────────────────────────────
+
+  vulnerable-api:
+    build:
+      context: ./test-targets/VulnerableAPI
+      dockerfile: Dockerfile
+    networks:
+      - psd-net
+    ports:
+      - "5000:5000"
+    restart: unless-stopped
+
+  vulnerable-mvc:
+    build:
+      context: ./test-targets/VulnerableMVC
+      dockerfile: Dockerfile
+    networks:
+      - psd-net
+    ports:
+      - "5001:5001"
+    restart: unless-stopped
+
+  vulnerable-minimal-api:
+    build:
+      context: ./test-targets/VulnerableMinimalAPI
+      dockerfile: Dockerfile
+    networks:
+      - psd-net
+    ports:
+      - "5002:5002"
+    restart: unless-stopped

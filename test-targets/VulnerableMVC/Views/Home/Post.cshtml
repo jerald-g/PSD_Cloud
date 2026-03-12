@@ -1,0 +1,35 @@
+@{ ViewBag.Title = "Blog Post"; }
+
+@{
+    var post = ViewBag.Post as VulnerableMVC.Models.BlogPost;
+    var comments = ViewBag.Comments as List<VulnerableMVC.Models.Comment>;
+}
+
+<div class="card">
+    <h1>@post?.Title</h1>
+    <p>@post?.Content</p>
+    <small>By @post?.Author</small>
+</div>
+
+<h2>Comments</h2>
+@if (comments != null)
+{
+    @foreach (var c in comments)
+    {
+        <div class="card">
+            <strong>@c.Author</strong>
+            <!-- VULNERABILITY (A03): Stored XSS – comment content rendered as raw HTML -->
+            <p>@Html.Raw(c.Content)</p>
+            <small>@c.CreatedAt.ToString("g")</small>
+        </div>
+    }
+}
+
+<h3>Add a Comment</h3>
+<!-- VULNERABILITY: No CSRF token (@Html.AntiForgeryToken() is missing) -->
+<form action="/Home/AddComment" method="post">
+    <input type="hidden" name="postId" value="@post?.Id" />
+    <input type="text" name="author" placeholder="Your name" required />
+    <textarea name="content" placeholder="Write a comment..." rows="4" required></textarea>
+    <button type="submit">Post Comment</button>
+</form>

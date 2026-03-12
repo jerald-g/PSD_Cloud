@@ -1,0 +1,69 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-auth-service
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: auth-service
+    release: {{ .Release.Name }}
+spec:
+  replicas: {{ .Values.authService.replicaCount }}
+  selector:
+    matchLabels:
+      app: auth-service
+  template:
+    metadata:
+      labels:
+        app: auth-service
+        release: {{ .Release.Name }}
+    spec:
+      containers:
+        - name: auth-service
+          image: "{{ .Values.global.imageRegistry }}/{{ .Values.authService.image.repository }}:{{ .Values.global.imageTag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          ports:
+            - containerPort: 8000
+          env:
+            - name: DATABASE_URL
+              value: "postgresql+asyncpg://{{ .Values.global.database.username }}:$(DB_PASSWORD)@{{ .Release.Name }}-postgresql:{{ .Values.global.database.port }}/{{ .Values.global.database.name }}"
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: db-password
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: jwt-secret
+            - name: JWT_ALGORITHM
+              value: "HS256"
+            - name: JWT_EXPIRE_MINUTES
+              value: "60"
+          resources:
+            {{- toYaml .Values.authService.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-auth-service
+  namespace: {{ .Values.global.namespace }}
+spec:
+  selector:
+    app: auth-service
+  ports:
+    - port: {{ .Values.authService.service.port }}
+      targetPort: 8000
+  type: {{ .Values.authService.service.type }}

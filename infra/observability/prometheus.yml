@@ -1,0 +1,48 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  - job_name: "api-gateway"
+    static_configs:
+      - targets: ["api-gateway:8000"]
+    metrics_path: /metrics
+
+  - job_name: "auth-service"
+    static_configs:
+      - targets: ["auth-service:8000"]
+    metrics_path: /metrics
+
+  - job_name: "scan-orchestrator"
+    static_configs:
+      - targets: ["scan-orchestrator:8000"]
+    metrics_path: /metrics
+
+  - job_name: "sast-scanner"
+    static_configs:
+      - targets: ["sast-scanner:8001"]
+    metrics_path: /metrics
+
+  - job_name: "dast-scanner"
+    static_configs:
+      - targets: ["dast-scanner:8001"]
+    metrics_path: /metrics
+
+  - job_name: "compliance-engine"
+    static_configs:
+      - targets: ["compliance-engine:8000"]
+    metrics_path: /metrics
+
+  - job_name: "report-generator"
+    static_configs:
+      - targets: ["report-generator:8000"]
+    metrics_path: /metrics
+
+  - job_name: "notification-service"
+    static_configs:
+      - targets: ["notification-service:8000"]
+    metrics_path: /metrics

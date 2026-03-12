@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: psd-cloud-config
+  namespace: psd-cloud
+data:
+  JWT_ALGORITHM: "HS256"
+  JWT_EXPIRE_MINUTES: "60"
+  NATS_URL: "nats://nats:4222"
+  MINIO_BUCKET: "psd-reports"
+  LOG_LEVEL: "INFO"
+  SAST_ENGINE: "semgrep"
+  DAST_ENGINE: "zap"
+  COMPLIANCE_STANDARDS: "owasp_top10,cis_benchmark"

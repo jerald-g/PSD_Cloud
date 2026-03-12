@@ -1,0 +1,52 @@
+{
+  "CIS-1": {
+    "name": "Inventory and Control of Enterprise Assets",
+    "controls": ["1.1", "1.2", "1.3"],
+    "keywords": ["asset inventory", "unauthorised device", "unknown host"]
+  },
+  "CIS-2": {
+    "name": "Inventory and Control of Software Assets",
+    "controls": ["2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7"],
+    "keywords": ["unauthorised software", "unlicensed", "software inventory"]
+  },
+  "CIS-3": {
+    "name": "Data Protection",
+    "controls": ["3.1", "3.2", "3.3", "3.4", "3.5", "3.6", "3.7", "3.8", "3.9", "3.10", "3.11", "3.12", "3.13", "3.14"],
+    "keywords": ["data classification", "sensitive data", "pii", "encryption at rest", "data retention"]
+  },
+  "CIS-4": {
+    "name": "Secure Configuration of Enterprise Assets and Software",
+    "controls": ["4.1", "4.2", "4.3", "4.4", "4.5", "4.6", "4.7", "4.8", "4.9", "4.10", "4.11", "4.12"],
+    "keywords": ["default password", "hardening", "configuration", "unnecessary service", "firewall", "patch"]
+  },
+  "CIS-5": {
+    "name": "Account Management",
+    "controls": ["5.1", "5.2", "5.3", "5.4", "5.5", "5.6"],
+    "keywords": ["privileged account", "shared credential", "account review", "dormant account"]
+  },
+  "CIS-6": {
+    "name": "Access Control Management",
+    "controls": ["6.1", "6.2", "6.3", "6.4", "6.5", "6.6", "6.7", "6.8"],
+    "keywords": ["least privilege", "role-based access", "rbac", "mfa", "multi-factor", "access review"]
+  },
+  "CIS-7": {
+    "name": "Continuous Vulnerability Management",
+    "controls": ["7.1", "7.2", "7.3", "7.4", "7.5", "7.6", "7.7"],
+    "keywords": ["vulnerability scan", "patch", "remediation", "cve", "risk score"]
+  },
+  "CIS-8": {
+    "name": "Audit Log Management",
+    "controls": ["8.1", "8.2", "8.3", "8.4", "8.5", "8.6", "8.7", "8.8", "8.9", "8.10", "8.11", "8.12"],
+    "keywords": ["audit log", "logging", "siem", "log retention", "log integrity"]
+  },
+  "CIS-9": {
+    "name": "Email and Web Browser Protections",
+    "controls": ["9.1", "9.2", "9.3", "9.4", "9.5", "9.6", "9.7"],
+    "keywords": ["phishing", "email filter", "browser plugin", "dns filtering"]
+  },
+  "CIS-16": {
+    "name": "Application Software Security",
+    "controls": ["16.1", "16.2", "16.3", "16.4", "16.5", "16.6", "16.7", "16.8", "16.9", "16.10", "16.11", "16.12", "16.13", "16.14"],
+    "keywords": ["secure sdlc", "sast", "dast", "penetration test", "code review", "input validation", "output encoding", "secure library"]
+  }
+}

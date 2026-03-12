@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-compliance-engine
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    app: compliance-engine
+    release: {{ .Release.Name }}
+spec:
+  replicas: {{ .Values.complianceEngine.replicaCount }}
+  selector:
+    matchLabels:
+      app: compliance-engine
+  template:
+    metadata:
+      labels:
+        app: compliance-engine
+        release: {{ .Release.Name }}
+    spec:
+      containers:
+        - name: compliance-engine
+          image: "{{ .Values.global.imageRegistry }}/{{ .Values.complianceEngine.image.repository }}:{{ .Values.global.imageTag }}"
+          imagePullPolicy: {{ .Values.global.imagePullPolicy }}
+          ports:
+            - containerPort: 8000
+          env:
+            - name: DATABASE_URL
+              value: "postgresql+asyncpg://{{ .Values.global.database.username }}:$(DB_PASSWORD)@{{ .Release.Name }}-postgresql:{{ .Values.global.database.port }}/{{ .Values.global.database.name }}"
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secrets
+                  key: db-password
+            - name: NATS_URL
+              value: {{ .Values.global.nats.url | quote }}
+            - name: ORCHESTRATOR_URL
+              value: "http://{{ .Release.Name }}-scan-orchestrator:8000"
+            - name: REPORT_GENERATOR_URL
+              value: "http://{{ .Release.Name }}-report-generator:8000"
+            - name: NOTIFICATION_URL
+              value: "http://{{ .Release.Name }}-notification-service:8000"
+          resources:
+            {{- toYaml .Values.complianceEngine.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 20
