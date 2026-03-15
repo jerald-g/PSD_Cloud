@@ -10,9 +10,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser
 
-# Writable fontconfig cache for non-root user
-RUN mkdir -p /home/appuser/.cache/fontconfig && \
+# Build system font cache and create writable user cache
+RUN fc-cache -fv && \
+    mkdir -p /home/appuser/.cache/fontconfig && \
     chown -R appuser:appgroup /home/appuser
+
+ENV XDG_CACHE_HOME=/home/appuser/.cache
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt

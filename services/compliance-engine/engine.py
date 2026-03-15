@@ -224,10 +224,7 @@ async def evaluate(payload: EvaluateRequest):
     }
 
     async with httpx.AsyncClient(timeout=30.0) as client:
-        # Trigger report generation
-        await client.post(f"{REPORT_GENERATOR_URL}/reports/generate", json=result_payload)
-
-        # Update orchestrator with score + summary
+        # Update orchestrator with score + summary FIRST (fast call)
         await client.post(
             f"{ORCHESTRATOR_URL}/scans/{payload.scan_id}/result",
             json={
@@ -237,5 +234,9 @@ async def evaluate(payload: EvaluateRequest):
                 "compliance_score": score,
             },
         )
+
+    async with httpx.AsyncClient(timeout=300.0) as client:
+        # Trigger report generation (can take a while for large scans)
+        await client.post(f"{REPORT_GENERATOR_URL}/reports/generate", json=result_payload)
 
     return {"status": "evaluated", "scan_id": payload.scan_id, "compliance_score": score}

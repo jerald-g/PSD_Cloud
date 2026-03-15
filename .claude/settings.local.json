@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(docker compose:*)"
+      "Bash(kubectl rollout:*)",
+      "Bash(kubectl logs:*)",
+      "Bash(docker build:*)",
+      "Bash(kubectl get:*)"
     ]
   }
 }

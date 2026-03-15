@@ -87,6 +87,9 @@ spec:
           envFrom:
             - configMapRef:
                 name: psd-cloud-config
+          env:
+            - name: REDIS_URL
+              value: "redis://redis:6379/0"
           livenessProbe:
             httpGet: { path: /health, port: 8000 }
             initialDelaySeconds: 15
@@ -137,6 +140,9 @@ spec:
           envFrom:
             - configMapRef:
                 name: psd-cloud-config
+          env:
+            - name: SONARQUBE_TOKEN
+              value: ""
           resources:
             requests: { cpu: "500m", memory: "512Mi" }
             limits:   { cpu: "2", memory: "2Gi" }
@@ -167,6 +173,9 @@ spec:
           envFrom:
             - configMapRef:
                 name: psd-cloud-config
+          env:
+            - name: ZAP_API_KEY
+              value: ""
           resources:
             requests: { cpu: "250m", memory: "256Mi" }
             limits:   { cpu: "1", memory: "1Gi" }
